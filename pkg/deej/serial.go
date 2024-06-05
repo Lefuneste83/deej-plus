@@ -35,7 +35,8 @@ type SerialIO struct {
 	sliderMoveConsumers []chan SliderMoveEvent
 }
 
-var expectedSerialLinePattern = regexp.MustCompile(`^\d{1,4}(\|\d{1,4})*\r\n$`)
+// var expectedSerialLinePattern = regexp.MustCompile(`^\d{1,4}(\|\d{1,4})*\r\n$`)
+var expectedSerialLinePattern = regexp.MustCompile(`^(?:\w+\|)?\d{1,4}(\|\d{1,4})*\r\n$`)
 
 // NewSerialIO creates a SerialIO instance that uses the provided deej
 // instance's connection info to establish communications with the arduino chip
@@ -103,6 +104,7 @@ func (sio *SerialIO) Start() error {
 	namedLogger.Infow("Connected", "conn", sio.conn)
 	sio.connected = true
 
+	sio.conn.Write([]byte("connect"))
 	// read lines or await a stop
 	go func() {
 		connReader := bufio.NewReader(sio.conn)
@@ -225,6 +227,8 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 	// this function receives an unsanitized line which is guaranteed to end with LF,
 	// but most lines will end with CRLF. it may also have garbage instead of
 	// deej-formatted values, so we must check for that! just ignore bad ones
+	isValid := expectedSerialLinePattern.MatchString(line)
+	fmt.Printf("Testing: %s - Valid: %t\n", line, isValid)
 	if !expectedSerialLinePattern.MatchString(line) {
 		return
 	}
@@ -234,6 +238,19 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 
 	// split on pipe (|), this gives a slice of numerical strings between "0" and "1023"
 	splitLine := strings.Split(line, "|")
+	inputType := splitLine[0]
+	splitLine = splitLine[1:]
+
+	if inputType == "Slider" {
+		handleSliders(sio, logger, line, splitLine)
+
+	} else if inputType == "Button" {
+		handleButtons(sio, splitLine)
+	}
+
+}
+
+func handleSliders(sio *SerialIO, logger *zap.SugaredLogger, line string, splitLine []string) {
 	numSliders := len(splitLine)
 
 	// update our slider count, if needed - this will send slider move events for all
@@ -296,6 +313,15 @@ func (sio *SerialIO) handleLine(logger *zap.SugaredLogger, line string) {
 			for _, moveEvent := range moveEvents {
 				consumer <- moveEvent
 			}
+		}
+	}
+}
+
+func handleButtons(sio *SerialIO, splitLine []string) {
+	for i := 0; i < len(splitLine); i++ {
+		if splitLine[i] == "1" {
+			str := sio.deej.config.buttonMapping.m[i]
+			PressButton(str)
 		}
 	}
 }

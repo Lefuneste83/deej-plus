@@ -7,6 +7,7 @@ require (
 	github.com/gen2brain/beeep v0.0.0-20240516210008-9c006672e7f4
 	github.com/getlantern/systray v1.2.2
 	github.com/go-ole/go-ole v1.3.0
+	github.com/gopherjs/gopherjs v1.17.2
 	github.com/jacobsa/go-serial v0.0.0-20180131005756-15cf729a72d4
 	github.com/jfreymuth/pulse v0.1.1
 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e
@@ -14,6 +15,7 @@ require (
 	github.com/moutend/go-wca v0.3.0
 	github.com/spf13/viper v1.19.0
 	github.com/thoas/go-funk v0.9.3
+	go.bug.st/serial v1.6.2
 	go.uber.org/zap v1.27.0
 )
 
@@ -29,6 +31,7 @@ require (
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
+	github.com/micmonay/keybd_event v1.1.2
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/nu7hatch/gouuid v0.0.0-20131221200532-179d4d0c4d8d // indirect
 	github.com/oxtoacart/bpool v0.0.0-20190530202638-03653db5a59c // indirect
@@ -47,4 +50,9 @@ require (
 	golang.org/x/text v0.14.0 // indirect
 	gopkg.in/ini.v1 v1.67.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+)
+
+require (
+	github.com/creack/goselect v0.1.2 // indirect
+	github.com/tevino/abool v1.2.0 // indirect
 )

@@ -18,6 +18,8 @@ import (
 type CanonicalConfig struct {
 	SliderMapping *sliderMap
 
+	buttonMapping *buttonMap
+
 	ControllerType string
 
 	SerialConnectionInfo struct {
@@ -55,6 +57,7 @@ const (
 	configType = "yaml"
 
 	configKeySliderMapping       = "slider_mapping"
+	configKeyButtonMapping       = "button_mapping"
 	configKeyInvertSliders       = "invert_sliders"
 	configKeyCOMPort             = "com_port"
 	configKeyBaudRate            = "baud_rate"
@@ -73,12 +76,12 @@ const (
 // has to be defined as a non-constant because we're using path.Join
 var internalConfigPath = path.Join(".", logDirectory)
 
-var defaultSliderMapping = func() *sliderMap {
-	emptyMap := newSliderMap()
-	emptyMap.set(0, []string{masterSessionName})
-
-	return emptyMap
-}()
+//var defaultSliderMapping = func() *sliderMap {
+//	emptyMap := newSliderMap()
+//	emptyMap.set(0, []string{masterSessionName})
+//
+//	return emptyMap
+//}()
 
 // NewConfig creates a config instance for the deej object and sets up viper instances for deej's config files
 func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, error) {
@@ -98,6 +101,7 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 	userConfig.AddConfigPath(userConfigPath)
 
 	userConfig.SetDefault(configKeySliderMapping, map[string][]string{})
+	userConfig.SetDefault(configKeyButtonMapping, map[string][]string{})
 	userConfig.SetDefault(configKeyInvertSliders, false)
 	userConfig.SetDefault(configKeyCOMPort, defaultCOMPort)
 	userConfig.SetDefault(configKeyBaudRate, defaultBaudRate)
@@ -161,6 +165,7 @@ func (cc *CanonicalConfig) Load() error {
 	cc.logger.Info("Loaded config successfully")
 	cc.logger.Infow("Config values",
 		"sliderMapping", cc.SliderMapping,
+		"buttonMapping", cc.buttonMapping,
 		"controllerType", cc.ControllerType,
 		"serialConnectionInfo", cc.SerialConnectionInfo,
 		"udpConnectionInfo", cc.UdpConnectionInfo,
@@ -239,6 +244,11 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 	cc.SliderMapping = sliderMapFromConfigs(
 		cc.userConfig.GetStringMapStringSlice(configKeySliderMapping),
 		cc.internalConfig.GetStringMapStringSlice(configKeySliderMapping),
+	)
+
+	cc.buttonMapping = buttonrMapFromConfigs(
+		cc.userConfig.GetStringMapStringSlice(configKeyButtonMapping),
+		cc.internalConfig.GetStringMapStringSlice(configKeyButtonMapping),
 	)
 
 	// get the rest of the config fields - viper saves us a lot of effort here
