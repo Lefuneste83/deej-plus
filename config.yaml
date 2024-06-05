@@ -1,4 +1,3 @@
-# process names are case-insensitive
 # you can use 'master' to indicate the master channel, or a list of process names to create a group
 # you can use 'mic' to control your mic input level (uses the default recording device)
 # you can use 'deej.unmapped' to control all apps that aren't bound to any slider (this ignores master, system, mic and device-targeting sessions)
@@ -8,12 +7,10 @@
 # important: slider indexes start at 0, regardless of which analog pins you're using!
 slider_mapping:
   0: master
-  1: chrome.exe
-  2: spotify.exe
-  3:
-    - pathofexile_x64.exe
-    - rocketleague.exe
-  4: discord.exe
+  1: chrome
+  2: strawberry
+  3: deej.unmapped
+  4: mic
 
 # set this to true if you want the controls inverted (i.e. top is 0%, bottom is 100%)
 invert_sliders: false
@@ -24,11 +21,11 @@ baud_rate: 9600
 
 # adjust the amount of signal noise reduction depending on your hardware quality
 # supported values are "low" (excellent hardware), "default" (regular hardware) or "high" (bad, noisy hardware)
-noise_reduction: default
+noise_reduction: low
 
 # set this to "serial" to use deej with an arduino board connected via a serial port
 # set this to "udp" to listen for slider movements via a UDP network connection
-controller_type: serial
+controller_type: udp
 
 # settings for the UDP connection
 udp_port: 16990
