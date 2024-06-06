@@ -49,7 +49,7 @@ func (d *Deej) initializeTray(onDone func()) {
 
 					editor := "notepad.exe"
 					if util.Linux() {
-						editor = "gedit"
+						editor = "xed"
 					}
 
 					if err := util.OpenExternal(logger, editor, userConfigFilepath); err != nil {

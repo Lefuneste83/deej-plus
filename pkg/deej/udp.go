@@ -27,10 +27,12 @@ type UdpIO struct {
 
 	connection *net.UDPConn
 
-	sliderMoveConsumers []chan SliderMoveEvent
+	sliderMoveConsumers        []chan SliderMoveEvent
+	buttonStateChangeConsumers []chan ButtonStateChangeEvent // New slice for button state change consumers
 }
 
-var expectedUdpLinePattern = regexp.MustCompile(`^\d{1,4}(\|\d{1,4})*$`)
+// var expectedUdpLinePattern = regexp.MustCompile(`^\d{1,4}(\|\d{1,4})*$`)
+var expectedUdpLinePattern = regexp.MustCompile(`^(?:\w+\|)?\d{1,4}(\|\d{1,4})*\r\n$`)
 
 // NewUdpIO creates a UdpIO instance that uses the provided deej
 // instance's connection info to establish communications with the controller
@@ -38,10 +40,11 @@ func NewUdpIO(deej *Deej, logger *zap.SugaredLogger) (*UdpIO, error) {
 	logger = logger.Named("udp")
 
 	udpio := &UdpIO{
-		deej:                deej,
-		logger:              logger,
-		stopChannel:         make(chan bool),
-		sliderMoveConsumers: []chan SliderMoveEvent{},
+		deej:                       deej,
+		logger:                     logger,
+		stopChannel:                make(chan bool),
+		sliderMoveConsumers:        []chan SliderMoveEvent{},
+		buttonStateChangeConsumers: []chan ButtonStateChangeEvent{}, // Initialize button state change consumers
 	}
 
 	logger.Debug("Created UDP i/o instance")
@@ -148,6 +151,15 @@ func (udpio *UdpIO) SubscribeToSliderMoveEvents() chan SliderMoveEvent {
 	return ch
 }
 
+// SubscribeToButtonStateChangeEvents returns an unbuffered channel that receives
+// a ButtonStateChangeEvent struct every time a button state changes
+func (udpio *UdpIO) SubscribeToButtonStateChangeEvents() chan ButtonStateChangeEvent {
+	ch := make(chan ButtonStateChangeEvent)
+	udpio.buttonStateChangeConsumers = append(udpio.buttonStateChangeConsumers, ch)
+
+	return ch
+}
+
 func (udpio *UdpIO) setupOnConfigReload() {
 	configReloadedChannel := udpio.deej.config.SubscribeToChanges()
 
@@ -174,13 +186,34 @@ func (udpio *UdpIO) setupOnConfigReload() {
 	}()
 }
 
-func (udpio *UdpIO) handlePacket(logger *zap.SugaredLogger, packet string) {
-	if !expectedUdpLinePattern.MatchString(packet) {
+// func (udpio *UdpIO) handlePacket(logger *zap.SugaredLogger, packet string) {
+func (udpio *UdpIO) handlePacket(logger *zap.SugaredLogger, line string) {
+	// this function receives an unsanitized line which is guaranteed to end with LF,
+	// but most lines will end with CRLF. it may also have garbage instead of
+	// deej-formatted values, so we must check for that! just ignore bad ones
+	isValid := expectedUdpLinePattern.MatchString(line)
+	fmt.Printf("Testing: %s - Valid: %t\n", line, isValid)
+	if !expectedUdpLinePattern.MatchString(line) {
 		return
 	}
+	// trim the suffix
+	line = strings.TrimSuffix(line, "\r\n")
 
 	// split on pipe (|), this gives a slice of numerical strings between "0" and "1023"
-	splitLine := strings.Split(packet, "|")
+	splitLine := strings.Split(line, "|")
+	inputType := splitLine[0]
+	splitLine = splitLine[1:]
+
+	if inputType == "Slider" {
+		UDPhandleSliders(udpio, logger, line, splitLine)
+
+	} else if inputType == "Button" {
+		UDPhandleButtons(udpio, splitLine)
+	}
+}
+
+func UDPhandleSliders(udpio *UdpIO, logger *zap.SugaredLogger, line string, splitLine []string) {
+
 	numSliders := len(splitLine)
 
 	// update our slider count, if needed - this will send slider move events for all
@@ -188,61 +221,58 @@ func (udpio *UdpIO) handlePacket(logger *zap.SugaredLogger, packet string) {
 		logger.Infow("Detected sliders", "amount", numSliders)
 		udpio.lastKnownNumSliders = numSliders
 		udpio.currentSliderPercentValues = make([]float32, numSliders)
-
 		// reset everything to be an impossible value to force the slider move event later
 		for idx := range udpio.currentSliderPercentValues {
 			udpio.currentSliderPercentValues[idx] = -1.0
 		}
 	}
-
 	// for each slider:
 	moveEvents := []SliderMoveEvent{}
 	for sliderIdx, stringValue := range splitLine {
-
 		// convert string values to integers ("1023" -> 1023)
-		number, _ := strconv.Atoi(string(stringValue))
-
+		number, _ := strconv.Atoi(stringValue)
 		// turns out the first line could come out dirty sometimes (i.e. "4558|925|41|643|220")
 		// so let's check the first number for correctness just in case
 		if sliderIdx == 0 && number > 1023 {
-			udpio.logger.Debugw("Got malformed packet from UDP, ignoring", "packet", packet)
+			udpio.logger.Debugw("Got malformed line from serial, ignoring", "line", line)
 			return
 		}
-
 		// map the value from raw to a "dirty" float between 0 and 1 (e.g. 0.15451...)
 		dirtyFloat := float32(number) / 1023.0
-
 		// normalize it to an actual volume scalar between 0.0 and 1.0 with 2 points of precision
 		normalizedScalar := util.NormalizeScalar(dirtyFloat)
-
 		// if sliders are inverted, take the complement of 1.0
 		if udpio.deej.config.InvertSliders {
 			normalizedScalar = 1 - normalizedScalar
 		}
-
 		// check if it changes the desired state (could just be a jumpy raw slider value)
 		if util.SignificantlyDifferent(udpio.currentSliderPercentValues[sliderIdx], normalizedScalar, udpio.deej.config.NoiseReductionLevel) {
-
 			// if it does, update the saved value and create a move event
 			udpio.currentSliderPercentValues[sliderIdx] = normalizedScalar
-
 			moveEvents = append(moveEvents, SliderMoveEvent{
 				SliderID:     sliderIdx,
 				PercentValue: normalizedScalar,
 			})
-
 			if udpio.deej.Verbose() {
 				logger.Debugw("Slider moved", "event", moveEvents[len(moveEvents)-1])
 			}
 		}
 	}
-
 	// deliver move events if there are any, towards all potential consumers
 	if len(moveEvents) > 0 {
 		for _, consumer := range udpio.sliderMoveConsumers {
 			for _, moveEvent := range moveEvents {
 				consumer <- moveEvent
 			}
+		}
+	}
+}
+
+func UDPhandleButtons(udpio *UdpIO, splitLine []string) {
+	for i := 0; i < len(splitLine); i++ {
+		if splitLine[i] == "1" {
+			str := udpio.deej.config.buttonMapping.m[i]
+			PressButton(str)
 		}
 	}
 }
