@@ -1,4 +1,4 @@
-kk#include <WiFi.h>
+#include <WiFi.h>
 #include <WiFiUdp.h>
 #include "configuration.h"
 
@@ -20,8 +20,16 @@ void setup() {
         sentButtonValues = new int[NUM_BUTTONS];
         buttonTimerStart = new unsigned long[NUM_BUTTONS];
         isButtonPressed = new bool[NUM_BUTTONS]();
-    }
 
+       // Initialize button values to 0
+        for (int i = 0; i < NUM_BUTTONS; i++) {
+            buttonValues[i] = 0;
+            sentButtonValues[i] = 0;
+            buttonTimerStart[i] = 0;
+            isButtonPressed[i] = false;
+        }
+    }
+    
     destIp.fromString(DEST_IP);
 
     Serial.begin(115200);
@@ -170,4 +178,3 @@ void cleanup() {
         isButtonPressed = nullptr;
     }
 }
-
