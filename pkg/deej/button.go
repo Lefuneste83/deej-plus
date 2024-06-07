@@ -51,6 +51,14 @@ func pressKey(s string) {
 }
 
 var keyMap = map[string]int{
+	"lxnextsong":     163,
+	"lxplaypause":    164,
+	"lxprevioussong": 165,
+	"lxmute":         113,
+	"lxvoldown":      114,
+	"lxvolup":        115,
+	"lxpause":        119,
+	//Windows Keycodes below
 	"shift":               0x10 + 0xFFF,
 	"ctrl":                0x11 + 0xFFF,
 	"alt":                 0x12 + 0xFFF,
