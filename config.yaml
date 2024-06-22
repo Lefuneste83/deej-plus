@@ -25,7 +25,7 @@ button_mapping:
   1: keyboard.lxprevioussong
   2: keyboard.lxplaypause
   3: keyboard.lxnextsong
-  4: strwberry
+  4: strawberry
   5: google-chrome https://youtube.com/
   6: google-chrome https://gmail.com/
   7: mate-terminal
