@@ -2,10 +2,9 @@ package deej
 
 import (
 	"fmt"
+	"os/exec"
 	"runtime"
 	"strings"
-
-	"os/exec"
 
 	"github.com/micmonay/keybd_event"
 )
@@ -21,6 +20,7 @@ func PressButton(cmds []string) {
 		}
 	}
 }
+
 func openFile(filePath string) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
@@ -29,7 +29,8 @@ func openFile(filePath string) {
 	case "darwin":
 		cmd = exec.Command("open", filePath)
 	default: // Linux, BSD, etc.
-		cmd = exec.Command("xdg-open", filePath)
+		args := strings.Fields(filePath)
+		cmd = exec.Command(args[0], args[1:]...)
 	}
 
 	if err := cmd.Run(); err != nil {
