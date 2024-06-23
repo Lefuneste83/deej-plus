@@ -91,7 +91,7 @@ On the long run a complete code revamping should ideally bring such a functional
 This repo only addresses code for ESP32 based controllers, but there is no reason it should not work on stock Arduino as long as you have the required hardware.
 The basics are exactly the same as what is listed in the repo for the original project. In UDP mode, the main difference is that the final string should be sent via UDP instead of through the serial port. The controller sends both anyways.
 
-The current version of the controller firmware is being actively developped in order to implement further functionnalities. More to come soon!
+The current version of the controller firmware and hardware are being actively developped in order to implement further functionnalities. More to come soon!
 
 ## Use case
 
