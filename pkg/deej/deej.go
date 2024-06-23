@@ -1,5 +1,3 @@
-// Package deej provides a machine-side client that pairs with an Arduino
-// chip to form a tactile, physical volume control system/
 package deej
 
 import (
@@ -13,7 +11,6 @@ import (
 )
 
 const (
-
 	// when this is set to anything, deej won't use a tray icon
 	envNoTray = "DEEJ_NO_TRAY_ICON"
 )
@@ -26,9 +23,10 @@ type Deej struct {
 	sliderController SliderController
 	sessions         *sessionMap
 
-	stopChannel chan bool
-	version     string
-	verbose     bool
+	stopChannel    chan bool
+	version        string
+	verbose        bool
+	executablePath string
 }
 
 // NewDeej creates a Deej instance
@@ -41,18 +39,25 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool) (*Deej, error) {
 		return nil, fmt.Errorf("create new ToastNotifier: %w", err)
 	}
 
-	config, err := NewConfig(logger, notifier)
+	executablePath, err := os.Executable()
+	if err != nil {
+		logger.Errorw("Failed to get executable path", "error", err)
+		return nil, fmt.Errorf("get executable path: %w", err)
+	}
+
+	config, err := NewConfig(logger, notifier, executablePath)
 	if err != nil {
 		logger.Errorw("Failed to create Config", "error", err)
 		return nil, fmt.Errorf("create new Config: %w", err)
 	}
 
 	d := &Deej{
-		logger:      logger,
-		notifier:    notifier,
-		config:      config,
-		stopChannel: make(chan bool),
-		verbose:     verbose,
+		logger:         logger,
+		notifier:       notifier,
+		config:         config,
+		stopChannel:    make(chan bool),
+		verbose:        verbose,
+		executablePath: executablePath,
 	}
 
 	sessionFinder, err := newSessionFinder(logger)
@@ -77,6 +82,15 @@ func NewDeej(logger *zap.SugaredLogger, verbose bool) (*Deej, error) {
 // Initialize sets up components and starts to run in the background
 func (d *Deej) Initialize() error {
 	d.logger.Debug("Initializing")
+
+	// Find and load the config file
+	configPath, err := findConfigFile(d.executablePath)
+	if err != nil {
+		d.logger.Errorw("Failed to find config file", "error", err)
+		return fmt.Errorf("find config file: %w", err)
+	}
+
+	d.config.SetConfigFile(configPath)
 
 	// load the config for the first time
 	if err := d.config.Load(); err != nil {
@@ -113,13 +127,11 @@ func (d *Deej) Initialize() error {
 
 	// decide whether to run with/without tray
 	if _, noTraySet := os.LookupEnv(envNoTray); noTraySet {
-
 		d.logger.Debugw("Running without tray icon", "reason", "envvar set")
 
 		// run in main thread while waiting on ctrl+C
 		d.setupInterruptHandler()
 		d.run()
-
 	} else {
 		d.setupInterruptHandler()
 		d.initializeTray(d.run)
@@ -186,7 +198,6 @@ func (d *Deej) run() {
 
 				d.signalStop()
 			}
-
 		}
 	}()
 

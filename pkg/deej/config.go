@@ -2,7 +2,8 @@ package deej
 
 import (
 	"fmt"
-	"path"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,10 +17,8 @@ import (
 // CanonicalConfig provides application-wide access to configuration fields,
 // as well as loading/file watching logic for deej's configuration file
 type CanonicalConfig struct {
-	SliderMapping *sliderMap
-
-	buttonMapping *buttonMap
-
+	SliderMapping  *sliderMap
+	buttonMapping  *buttonMap
 	ControllerType string
 
 	SerialConnectionInfo struct {
@@ -31,8 +30,7 @@ type CanonicalConfig struct {
 		UdpPort int
 	}
 
-	InvertSliders bool
-
+	InvertSliders       bool
 	NoiseReductionLevel string
 
 	logger             *zap.SugaredLogger
@@ -74,17 +72,10 @@ const (
 )
 
 // has to be defined as a non-constant because we're using path.Join
-var internalConfigPath = path.Join(".", logDirectory)
-
-//var defaultSliderMapping = func() *sliderMap {
-//	emptyMap := newSliderMap()
-//	emptyMap.set(0, []string{masterSessionName})
-//
-//	return emptyMap
-//}()
+var internalConfigPath = filepath.Join(".", logDirectory)
 
 // NewConfig creates a config instance for the deej object and sets up viper instances for deej's config files
-func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, error) {
+func NewConfig(logger *zap.SugaredLogger, notifier Notifier, executablePath string) (*CanonicalConfig, error) {
 	logger = logger.Named("config")
 
 	cc := &CanonicalConfig{
@@ -98,16 +89,20 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 	userConfig := viper.New()
 	userConfig.SetConfigName(userConfigName)
 	userConfig.SetConfigType(configType)
-	userConfig.AddConfigPath(userConfigPath)
+
+	// Find the config file
+	configPath, err := findConfigFile(executablePath)
+	if err != nil {
+		return nil, fmt.Errorf("find config file: %w", err)
+	}
+	userConfig.SetConfigFile(configPath)
 
 	userConfig.SetDefault(configKeySliderMapping, map[string][]string{})
 	userConfig.SetDefault(configKeyButtonMapping, map[string][]string{})
 	userConfig.SetDefault(configKeyInvertSliders, false)
 	userConfig.SetDefault(configKeyCOMPort, defaultCOMPort)
 	userConfig.SetDefault(configKeyBaudRate, defaultBaudRate)
-
 	userConfig.SetDefault(configKeyUdpPort, defaultUdpPort)
-
 	userConfig.SetDefault(configKeyControllerType, defaultControllerType)
 
 	internalConfig := viper.New()
@@ -125,15 +120,15 @@ func NewConfig(logger *zap.SugaredLogger, notifier Notifier) (*CanonicalConfig, 
 
 // Load reads deej's config files from disk and tries to parse them
 func (cc *CanonicalConfig) Load() error {
-	cc.logger.Debugw("Loading config", "path", userConfigFilepath)
+	cc.logger.Debugw("Loading config", "path", cc.userConfig.ConfigFileUsed())
 
 	// make sure it exists
-	if !util.FileExists(userConfigFilepath) {
-		cc.logger.Warnw("Config file not found", "path", userConfigFilepath)
+	if !util.FileExists(cc.userConfig.ConfigFileUsed()) {
+		cc.logger.Warnw("Config file not found", "path", cc.userConfig.ConfigFileUsed())
 		cc.notifier.Notify("Can't find configuration!",
-			fmt.Sprintf("%s must be in the same directory as deej. Please re-launch", userConfigFilepath))
+			fmt.Sprintf("%s must be in one of the valid locations. Please re-launch", userConfigFilepath))
 
-		return fmt.Errorf("config file doesn't exist: %s", userConfigFilepath)
+		return fmt.Errorf("config file doesn't exist: %s", cc.userConfig.ConfigFileUsed())
 	}
 
 	// load the user config
@@ -178,14 +173,13 @@ func (cc *CanonicalConfig) Load() error {
 func (cc *CanonicalConfig) SubscribeToChanges() chan bool {
 	c := make(chan bool)
 	cc.reloadConsumers = append(cc.reloadConsumers, c)
-
 	return c
 }
 
 // WatchConfigFileChanges starts watching for configuration file changes
 // and attempts reloading the config when they happen
 func (cc *CanonicalConfig) WatchConfigFileChanges() {
-	cc.logger.Debugw("Starting to watch user config file for changes", "path", userConfigFilepath)
+	cc.logger.Debugw("Starting to watch user config file for changes", "path", cc.userConfig.ConfigFileUsed())
 
 	const (
 		minTimeBetweenReloadAttempts = time.Millisecond * 500
@@ -194,22 +188,12 @@ func (cc *CanonicalConfig) WatchConfigFileChanges() {
 
 	lastAttemptedReload := time.Now()
 
-	// establish watch using viper as opposed to doing it ourselves, though our internal cooldown is still required
 	cc.userConfig.WatchConfig()
 	cc.userConfig.OnConfigChange(func(event fsnotify.Event) {
-
-		// when we get a write event...
 		if event.Op&fsnotify.Write == fsnotify.Write {
-
 			now := time.Now()
-
-			// ... check if it's not a duplicate (many editors will write to a file twice)
 			if lastAttemptedReload.Add(minTimeBetweenReloadAttempts).Before(now) {
-
-				// and attempt reload if appropriate
 				cc.logger.Debugw("Config file modified, attempting reload", "event", event)
-
-				// wait a bit to let the editor actually flush the new file contents to disk
 				<-time.After(delayBetweenEventAndReload)
 
 				if err := cc.Load(); err != nil {
@@ -217,17 +201,14 @@ func (cc *CanonicalConfig) WatchConfigFileChanges() {
 				} else {
 					cc.logger.Info("Reloaded config successfully")
 					cc.notifier.Notify("Configuration reloaded!", "Your changes have been applied.")
-
 					cc.onConfigReloaded()
 				}
 
-				// don't forget to update the time
 				lastAttemptedReload = now
 			}
 		}
 	})
 
-	// wait till they stop us
 	<-cc.stopWatcherChannel
 	cc.logger.Debug("Stopping user config file watcher")
 	cc.userConfig.OnConfigChange(nil)
@@ -239,8 +220,6 @@ func (cc *CanonicalConfig) StopWatchingConfigFile() {
 }
 
 func (cc *CanonicalConfig) populateFromVipers() error {
-
-	// merge the slider mappings from the user and internal configs
 	cc.SliderMapping = sliderMapFromConfigs(
 		cc.userConfig.GetStringMapStringSlice(configKeySliderMapping),
 		cc.internalConfig.GetStringMapStringSlice(configKeySliderMapping),
@@ -251,7 +230,6 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 		cc.internalConfig.GetStringMapStringSlice(configKeyButtonMapping),
 	)
 
-	// get the rest of the config fields - viper saves us a lot of effort here
 	switch cc.userConfig.GetString(configKeyControllerType) {
 	case "serial", "udp":
 		cc.ControllerType = cc.userConfig.GetString(configKeyControllerType)
@@ -260,8 +238,8 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 			"key", configKeyControllerType,
 			"invalidValue", cc.userConfig.GetString(configKeyControllerType),
 			"defaultValue", defaultControllerType)
+		cc.ControllerType = defaultControllerType
 	}
-	cc.logger.Info("Added controller type: ", cc.ControllerType)
 
 	cc.SerialConnectionInfo.COMPort = cc.userConfig.GetString(configKeyCOMPort)
 
@@ -271,17 +249,15 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 			"key", configKeyBaudRate,
 			"invalidValue", cc.SerialConnectionInfo.BaudRate,
 			"defaultValue", defaultBaudRate)
-
 		cc.SerialConnectionInfo.BaudRate = defaultBaudRate
 	}
 
 	cc.UdpConnectionInfo.UdpPort = cc.userConfig.GetInt(configKeyUdpPort)
-	if (cc.UdpConnectionInfo.UdpPort <= 0) || (cc.UdpConnectionInfo.UdpPort >= 65536) {
+	if cc.UdpConnectionInfo.UdpPort <= 0 || cc.UdpConnectionInfo.UdpPort >= 65536 {
 		cc.logger.Warnw("Invalid UDP port specified, using default value",
 			"key", configKeyUdpPort,
 			"invalidValue", cc.UdpConnectionInfo.UdpPort,
 			"defaultValue", defaultUdpPort)
-
 		cc.UdpConnectionInfo.UdpPort = defaultUdpPort
 	}
 
@@ -295,8 +271,42 @@ func (cc *CanonicalConfig) populateFromVipers() error {
 
 func (cc *CanonicalConfig) onConfigReloaded() {
 	cc.logger.Debug("Notifying consumers about configuration reload")
-
 	for _, consumer := range cc.reloadConsumers {
 		consumer <- true
 	}
+}
+
+// findConfigFile looks for the config file in multiple locations
+func findConfigFile(executablePath string) (string, error) {
+	// Check in the same directory as the executable
+	exeDir := filepath.Dir(executablePath)
+	configPath := filepath.Join(exeDir, userConfigFilepath)
+	if util.FileExists(configPath) {
+		return configPath, nil
+	}
+
+	// Check in the current working directory
+	cwd, err := os.Getwd()
+	if err == nil {
+		configPath = filepath.Join(cwd, userConfigFilepath)
+		if util.FileExists(configPath) {
+			return configPath, nil
+		}
+	}
+
+	// Check in the user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err == nil {
+		configPath = filepath.Join(homeDir, ".deej", userConfigFilepath)
+		if util.FileExists(configPath) {
+			return configPath, nil
+		}
+	}
+
+	return "", fmt.Errorf("config file not found")
+}
+
+// SetConfigFile sets the path for the user config file
+func (cc *CanonicalConfig) SetConfigFile(path string) {
+	cc.userConfig.SetConfigFile(path)
 }
