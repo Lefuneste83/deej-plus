@@ -59,6 +59,8 @@ var keyMap = map[string]int{
 	"lxvoldown":      114,
 	"lxvolup":        115,
 	"lxpause":        119,
+	"lxback":         158,
+	"lxforward":      159,
 	//Windows Keycodes below
 	"shift":               0x10 + 0xFFF,
 	"ctrl":                0x11 + 0xFFF,
